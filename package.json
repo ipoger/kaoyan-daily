@@ -1,0 +1,31 @@
+{
+  "name": "kaoyan-daily",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "研途 · 考研每日练习：数学一题、英语一句、408 两题。先作答，再看解析。",
+  "scripts": {
+    "dev": "vite",
+    "build": "node scripts/validate-content.mjs && vite build && node scripts/build-sw.mjs",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "validate": "node scripts/validate-content.mjs"
+  },
+  "keywords": [
+    "kaoyan",
+    "考研",
+    "408",
+    "spaced-repetition",
+    "study"
+  ],
+  "author": "May",
+  "license": "MIT",
+  "dependencies": {
+    "katex": "^0.19.1"
+  },
+  "devDependencies": {
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  }
+}

@@ -1,0 +1,56 @@
+[
+  {
+    "id": "custom-001",
+    "subject": "math",
+    "topic": "函数极限",
+    "difficulty": 1,
+    "type": "choice",
+    "prompt": "求 $\\displaystyle \\lim_{x\\to 0}\\frac{\\sin x}{x}$。",
+    "options": ["$0$", "$1$", "$2$", "$+\\infty$"],
+    "answer": 1,
+    "explanation": "这是重要极限，$\\lim_{x\\to 0}\\frac{\\sin x}{x}=1$。",
+    "source": "示例"
+  },
+  {
+    "id": "custom-002",
+    "subject": "english",
+    "topic": "长难句 · 定语从句",
+    "difficulty": 2,
+    "type": "choice",
+    "passage": "The evidence, ____ was collected over ten years, suggests a different conclusion.",
+    "prompt": "选择最恰当的选项补全句子，并先口头翻译全句。",
+    "options": ["which", "what", "that", "where"],
+    "answer": 0,
+    "explanation": "逗号后为非限制性定语从句，先行词是 evidence，which 在从句中作主语；that 不能引导非限制性定语从句。",
+    "translation": "这些历时十年收集的证据指向一个不同的结论。",
+    "vocab": [
+      { "word": "evidence", "meaning": "n. 证据" },
+      { "word": "conclusion", "meaning": "n. 结论" }
+    ],
+    "source": "示例"
+  },
+  {
+    "id": "custom-003",
+    "subject": "cs408",
+    "topic": "时间复杂度",
+    "difficulty": 1,
+    "type": "choice",
+    "prompt": "在长度为 n 的有序数组中二分查找一个元素，最坏时间复杂度是（ ）。",
+    "options": ["$O(1)$", "$O(\\log n)$", "$O(n)$", "$O(n\\log n)$"],
+    "answer": 1,
+    "explanation": "每次比较后搜索区间减半，最多比较 $\\lceil \\log_2 n \\rceil$ 次，因此为 $O(\\log n)$。",
+    "source": "示例"
+  },
+  {
+    "id": "custom-004",
+    "subject": "math",
+    "topic": "导数与微分",
+    "difficulty": 1,
+    "type": "fill",
+    "prompt": "设 $f(x)=x^2$，则 $f'(1)=\\underline{\\qquad}$。",
+    "answer": "2",
+    "accept": ["2", "2.0"],
+    "explanation": "$f'(x)=2x$，所以 $f'(1)=2$。",
+    "source": "示例"
+  }
+]

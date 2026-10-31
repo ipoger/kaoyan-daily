@@ -1,0 +1,25 @@
+name: 题目纠错
+description: 某道题的答案、解析或表述有问题
+title: "[题目] "
+labels: ["content"]
+body:
+  - type: input
+    id: question-id
+    attributes:
+      label: 题目 ID
+      description: 在题目卡片或题库文件里可以找到，例如 math-005。
+      placeholder: math-005
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: 问题是什么
+      description: 请说明你认为答案 / 解析哪里不对，最好给出推导或出处。
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: 建议怎么改
+      description: 可以直接写出修改后的答案或解析。

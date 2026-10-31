@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="description" content="研途：每天一道数学题、一句英语长难句、两道 408。先作答，再看解析，自动记录错题并间隔复习。" />
+    <meta name="theme-color" content="#f4efe4" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./icon-192.png" />
+    <title>研途 · 每日四题</title>
+    <script>
+      // 在首屏绘制前恢复主题，避免闪白。
+      try {
+        const saved = JSON.parse(localStorage.getItem('kaoyan-daily/v1') || 'null')
+        const pref = saved?.settings?.theme || 'auto'
+        const dark = pref === 'dark' || (pref === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches)
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+      } catch {}
+    </script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到主要内容</a>
+    <div id="app"></div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <noscript>
+      <p style="max-width: 40rem; margin: 4rem auto; font: 16px/1.8 serif; padding: 0 1.5rem">
+        研途需要 JavaScript 才能批改与记录进度。请开启 JavaScript 后刷新页面。
+      </p>
+    </noscript>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
