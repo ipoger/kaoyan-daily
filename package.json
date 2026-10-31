@@ -1,6 +1,6 @@
 {
   "name": "kaoyan-daily",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "研途 · 考研每日练习：数学一题、英语一句、408 两题。先作答，再看解析。",

@@ -19,6 +19,7 @@ export function emptyProgress(question, dayKey) {
     firstCorrect: undefined,
     firstAt: undefined,
     lastAt: undefined,
+    lastDay: undefined,
     lastResult: undefined,
   }
 }
@@ -31,6 +32,7 @@ export function nextReview(previous, correct, dayKey, question) {
   const progress = { ...emptyProgress(question, dayKey), ...(previous || {}) }
   progress.attempts += 1
   progress.lastAt = new Date().toISOString()
+  progress.lastDay = dayKey
   progress.lastResult = correct ? 'correct' : 'wrong'
 
   if (progress.firstCorrect === undefined) {

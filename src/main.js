@@ -10,26 +10,34 @@ import { nextReview } from './lib/review.js'
 import { validateQuestion, validateQuestions } from './lib/schema.js'
 import { clearState, createDefaultState, loadState, normalizeState, saveState } from './lib/storage.js'
 import { overallStats, wrongEntries } from './lib/stats.js'
+import { buildReviewPool, dueReviewQuestions, sampleReview, scopeLabel, sessionLabel } from './lib/study.js'
 import { SUBJECTS } from './lib/subjects.js'
 import { renderMath } from './ui/format.js'
-import { retryView, settingsView, statsView, todayView, wrongView } from './ui/views.js'
+import { learnView, reviewView, sessionView, settingsView, statsView, todayView, wrongView } from './ui/views.js'
 
 const app = document.getElementById('app')
 const toastEl = document.getElementById('toast')
-const TABS = ['today', 'wrong', 'stats', 'settings', 'retry']
-const VERSION = '1.0.0'
+const TABS = ['today', 'review', 'learn', 'wrong', 'stats', 'settings', 'practice']
+const VERSION = '1.1.0'
 
 let state = loadState()
 let questions = buildQuestionPool(state.customQuestions)
 let questionMap = indexQuestions(questions)
-let activeTab = tabFromHash()
+let route = parseRoute()
+let activeTab = route.tab
+let learnSubject = route.subject
 let wrongFilter = 'all'
 let practice = null
 let toastTimer = null
 
-function tabFromHash() {
-  const tab = window.location.hash.replace(/^#/, '')
-  return TABS.includes(tab) ? tab : 'today'
+function parseRoute() {
+  const raw = window.location.hash.replace(/^#/, '')
+  const [tab, ...rest] = raw.split('/')
+  if (tab === 'learn') {
+    const subject = rest[0]
+    return { tab: 'learn', subject: SUBJECTS[subject] ? subject : null }
+  }
+  return { tab: TABS.includes(tab) ? tab : 'today', subject: null }
 }
 
 function effectiveDark() {
@@ -108,6 +116,7 @@ function context() {
     questions,
     stats: overallStats(state, questionMap, todayKey()),
     activeTab,
+    learnSubject,
     dark: effectiveDark(),
     wrongFilter,
     practice,
@@ -121,14 +130,18 @@ function render() {
   const ctx = context()
   if (activeTab === 'today') {
     app.innerHTML = todayView(ctx)
+  } else if (activeTab === 'review') {
+    app.innerHTML = reviewView(ctx)
+  } else if (activeTab === 'learn') {
+    app.innerHTML = learnView(ctx)
   } else if (activeTab === 'wrong') {
     app.innerHTML = wrongView(ctx)
   } else if (activeTab === 'stats') {
     app.innerHTML = statsView(ctx)
   } else if (activeTab === 'settings') {
     app.innerHTML = settingsView(ctx)
-  } else if (activeTab === 'retry') {
-    app.innerHTML = retryView(ctx)
+  } else if (activeTab === 'practice') {
+    app.innerHTML = sessionView(ctx)
   } else {
     activeTab = 'today'
     app.innerHTML = todayView(ctx)
@@ -137,10 +150,12 @@ function render() {
   document.body.dataset.tab = activeTab
   const titles = {
     today: '今日 · 研途',
+    review: '复习 · 研途',
+    learn: learnSubject ? `${SUBJECTS[learnSubject].name}学习 · 研途` : '学习 · 研途',
     wrong: '错题本 · 研途',
     stats: '学习数据 · 研途',
     settings: '设置 · 研途',
-    retry: '错题重练 · 研途',
+    practice: practice ? `${practice.title} · 研途` : '练习 · 研途',
   }
   document.title = titles[activeTab] || '研途 · 每日四题'
 }
@@ -153,15 +168,22 @@ function renderPreservingCard(qid) {
   if (after !== undefined) window.scrollBy(0, after - before)
 }
 
-function go(tab, { replace = false } = {}) {
+function go(tab, { replace = false, subject = null } = {}) {
   activeTab = tab
-  const hash = `#${tab}`
+  learnSubject = tab === 'learn' ? subject : null
+  const hash = tab === 'learn' && subject ? `#learn/${subject}` : `#${tab}`
   if (window.location.hash !== hash) {
     if (replace) window.history.replaceState(null, '', hash)
     else window.history.pushState(null, '', hash)
   }
   render()
   window.scrollTo(0, 0)
+}
+
+function updateReviewSetting(key, value) {
+  state.settings.review = { ...state.settings.review, [key]: value }
+  save()
+  render()
 }
 
 function recordDailyAnswer(qid, response) {
@@ -184,12 +206,35 @@ function recordDailyAnswer(qid, response) {
   toast(correct ? '答对了，继续。' : '已加入错题本，稍后会再考你。', correct ? 'success' : 'error')
 }
 
-function recordRetryAnswer(qid, response) {
+function maybeLogSession() {
+  if (!practice || practice.logged) return
+  if (Object.keys(practice.answers || {}).length < practice.ids.length) return
+  const answers = Object.values(practice.answers || {})
+  state.reviewLog = [
+    {
+      at: new Date().toISOString(),
+      day: todayKey(),
+      kind: practice.kind,
+      title:
+        practice.kind === 'random'
+          ? `${scopeLabel(practice.meta?.scopeDays)}随机抽题`
+          : practice.title,
+      total: practice.ids.length,
+      correct: answers.filter((answer) => answer.correct).length,
+      ids: [...practice.ids],
+    },
+    ...(state.reviewLog || []),
+  ].slice(0, 50)
+  practice.logged = true
+}
+
+function recordSessionAnswer(qid, response) {
   const question = questionMap.get(qid)
   if (!question || !practice) return
   const correct = isCorrect(question, response)
   practice.answers[qid] = { response, correct, at: new Date().toISOString() }
   state.progress[qid] = nextReview(state.progress[qid], correct, todayKey(), question)
+  maybeLogSession()
   save()
   renderPreservingCard(qid)
   toast(correct ? '这次对了。' : '还是不对，明天继续。', correct ? 'success' : 'error')
@@ -216,18 +261,127 @@ function submitCard(card) {
     input?.focus()
     return
   }
-  if (mode === 'retry') recordRetryAnswer(qid, response)
+  if (mode === 'retry') recordSessionAnswer(qid, response)
   else recordDailyAnswer(qid, response)
 }
 
-function startPractice(ids) {
+function startPractice(ids, options = {}) {
   const unique = [...new Set(ids)].filter((id) => questionMap.has(id))
   if (!unique.length) {
-    toast('没有可重练的题。', 'error')
+    toast('没有可练习的题。', 'error')
     return
   }
-  practice = { ids: unique, index: 0, answers: {} }
-  go('retry')
+  const kind = options.kind || 'wrong'
+  practice = {
+    ids: unique,
+    index: 0,
+    answers: {},
+    kind,
+    title: options.title || sessionLabel(kind),
+    returnTo: options.returnTo || (kind === 'wrong' ? '#wrong' : '#review'),
+    meta: options.meta || {},
+    startedAt: new Date().toISOString(),
+    finished: false,
+    logged: false,
+  }
+  go('practice')
+}
+
+function startRandomReview() {
+  const { scopeDays, count, preferWrong } = state.settings.review
+  const pool = buildReviewPool({
+    state,
+    questionsById: questionMap,
+    today: todayKey(),
+    scopeDays,
+    preferWrong,
+  })
+  const picked = sampleReview(pool.questions, Number(count) || 6, {
+    progress: state.progress,
+    preferWrong,
+  })
+  if (!picked.length) {
+    toast('这个范围里还没有做过的题。', 'error')
+    return
+  }
+  startPractice(picked.map((question) => question.id), {
+    kind: 'random',
+    title: '随机复习',
+    returnTo: '#review',
+    meta: { scopeDays, count },
+  })
+}
+
+function startDueReview() {
+  const due = dueReviewQuestions(state, questionMap, todayKey()).slice(0, 12)
+  if (!due.length) {
+    toast('今天没有到期复习题。', 'error')
+    return
+  }
+  startPractice(due.map((question) => question.id), {
+    kind: 'due',
+    title: '到期复习',
+    returnTo: '#review',
+  })
+}
+
+function startSubjectPractice(subject) {
+  if (!SUBJECTS[subject]) return
+  const pool = questions.filter((question) => question.subject === subject)
+  const picked = sampleReview(pool, 8, { progress: state.progress, preferWrong: true })
+  if (!picked.length) {
+    toast('这个科目还没有题目。', 'error')
+    return
+  }
+  startPractice(picked.map((question) => question.id), {
+    kind: 'subject',
+    title: `${SUBJECTS[subject].name} · 专项练习`,
+    returnTo: `#learn/${subject}`,
+    meta: { subject },
+  })
+}
+
+function startTopicPractice(subject, topic) {
+  if (!SUBJECTS[subject] || !topic) return
+  const pool = questions.filter((question) => question.subject === subject && question.topic === topic)
+  const picked = sampleReview(pool, 8, { progress: state.progress, preferWrong: true })
+  if (!picked.length) {
+    toast('这个知识点还没有题目。', 'error')
+    return
+  }
+  startPractice(picked.map((question) => question.id), {
+    kind: 'topic',
+    title: `${topic} · 专项练习`,
+    returnTo: `#learn/${subject}`,
+    meta: { subject, topic },
+  })
+}
+
+function restartSession() {
+  if (!practice) return
+  const { kind, meta } = practice
+  if (kind === 'random') startRandomReview()
+  else if (kind === 'due') {
+    const due = dueReviewQuestions(state, questionMap, todayKey())
+    if (due.length) startDueReview()
+    else {
+      toast('到期题已经清空，换一组随机复习。', 'success')
+      startRandomReview()
+    }
+  }
+  else if (kind === 'subject') startSubjectPractice(meta.subject)
+  else if (kind === 'topic') startTopicPractice(meta.subject, meta.topic)
+  else startPractice(practice.ids, { kind: 'wrong', title: '错题重练', returnTo: '#wrong' })
+}
+
+function startSessionWrongs() {
+  if (!practice) return
+  const ids = practice.ids.filter((id) => practice.answers?.[id] && !practice.answers[id].correct)
+  if (!ids.length) {
+    toast('这一组没有错题。', 'success')
+    return
+  }
+  startPractice(ids, { kind: 'wrong', title: '错题重练', returnTo: practice.returnTo })
 }
 
 function scrollToNext(qid) {
@@ -404,24 +558,46 @@ async function onClick(event) {
     if (card) submitCard(card)
   } else if (action === 'next-question') {
     scrollToNext(actionEl.dataset.qid)
-  } else if (action === 'next-retry') {
+  } else if (action === 'next-session') {
     if (!practice) return
     if (practice.index >= practice.ids.length - 1) {
-      go('wrong')
+      practice.finished = true
     } else {
       practice.index += 1
-      render()
-      window.scrollTo(0, 0)
     }
+    render()
+    window.scrollTo(0, 0)
+  } else if (action === 'session-again') {
+    restartSession()
+  } else if (action === 'session-wrongs') {
+    startSessionWrongs()
+  } else if (action === 'review-scope') {
+    updateReviewSetting('scopeDays', actionEl.dataset.value === 'all' ? 'all' : Number(actionEl.dataset.value))
+  } else if (action === 'review-count') {
+    updateReviewSetting('count', Number(actionEl.dataset.value))
+  } else if (action === 'review-prefer') {
+    updateReviewSetting('preferWrong', !state.settings.review.preferWrong)
+  } else if (action === 'start-random') {
+    startRandomReview()
+  } else if (action === 'start-due') {
+    startDueReview()
+  } else if (action === 'practice-subject') {
+    startSubjectPractice(actionEl.dataset.subject)
+  } else if (action === 'practice-topic') {
+    startTopicPractice(actionEl.dataset.subject, actionEl.dataset.topic)
   } else if (action === 'wrong-filter') {
     wrongFilter = actionEl.dataset.filter || 'all'
     render()
   } else if (action === 'retry-one') {
-    startPractice([actionEl.dataset.qid])
+    startPractice([actionEl.dataset.qid], { kind: 'wrong', title: '错题重练', returnTo: '#wrong' })
   } else if (action === 'retry-all') {
     const entries = wrongEntries(state, questionMap)
     const filtered = wrongFilter === 'all' ? entries : entries.filter((entry) => entry.question.subject === wrongFilter)
-    startPractice((filtered.length ? filtered : entries).map((entry) => entry.question.id))
+    startPractice((filtered.length ? filtered : entries).map((entry) => entry.question.id), {
+      kind: 'wrong',
+      title: '错题重练',
+      returnTo: '#wrong',
+    })
   } else if (action === 'toggle-theme') {
     state.settings.theme = effectiveDark() ? 'light' : 'dark'
     save()
@@ -457,7 +633,7 @@ function onKeyDown(event) {
     }
     return
   }
-  if (activeTab !== 'today' && activeTab !== 'retry') return
+  if (activeTab !== 'today' && activeTab !== 'practice') return
   const card = event.target.closest('.qa-card') || document.querySelector('.qa-card[data-active="true"]')
   if (!card) return
   if (/^[1-4]$/.test(event.key)) {
@@ -470,7 +646,7 @@ function onKeyDown(event) {
     // 焦点通常停在选项按钮上，所以这里主动接管 Enter，
     // 避免“按了 Enter 只是再次点击选项”的错觉。
     const submit = card.querySelector('[data-action="submit"]')
-    const next = card.querySelector('[data-action="next-question"], [data-action="next-retry"]')
+    const next = card.querySelector('[data-action="next-question"], [data-action="next-session"]')
     if (submit) {
       event.preventDefault()
       submit.click()
@@ -493,7 +669,9 @@ app.addEventListener('change', (event) => {
 })
 document.addEventListener('keydown', onKeyDown)
 window.addEventListener('hashchange', () => {
-  activeTab = tabFromHash()
+  const next = parseRoute()
+  activeTab = next.tab
+  learnSubject = next.subject
   render()
   window.scrollTo(0, 0)
 })

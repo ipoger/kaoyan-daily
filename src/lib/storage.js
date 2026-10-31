@@ -1,11 +1,12 @@
 export const STORAGE_KEY = 'kaoyan-daily/v1'
-export const STATE_VERSION = 1
+export const STATE_VERSION = 2
 
 export const DEFAULT_SETTINGS = {
   examDate: '2026-12-19',
   theme: 'auto',
   daily: { math: 1, english: 1, cs408: 2, politics: 0 },
   reviewLimit: 4,
+  review: { scopeDays: 7, count: 6, preferWrong: true },
 }
 
 export function createDefaultState() {
@@ -16,6 +17,7 @@ export function createDefaultState() {
     days: {},
     progress: {},
     customQuestions: [],
+    reviewLog: [],
     meta: {},
   }
 }
@@ -31,10 +33,12 @@ export function normalizeState(raw) {
       ...base.settings,
       ...(raw.settings || {}),
       daily: { ...base.settings.daily, ...(raw.settings?.daily || {}) },
+      review: { ...base.settings.review, ...(raw.settings?.review || {}) },
     },
     days: raw.days && typeof raw.days === 'object' ? raw.days : {},
     progress: raw.progress && typeof raw.progress === 'object' ? raw.progress : {},
     customQuestions: Array.isArray(raw.customQuestions) ? raw.customQuestions : [],
+    reviewLog: Array.isArray(raw.reviewLog) ? raw.reviewLog : [],
     meta: raw.meta && typeof raw.meta === 'object' ? raw.meta : {},
   }
   state.version = STATE_VERSION

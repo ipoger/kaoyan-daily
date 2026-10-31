@@ -3,18 +3,40 @@ import { formatDate, daysUntil } from '../lib/date.js'
 import { planCounts, isDayComplete } from '../lib/plan.js'
 import { wrongEntries, subjectBreakdown, weakTopics, overallStats, heatmap } from '../lib/stats.js'
 import { dueLabel } from '../lib/review.js'
+import {
+  buildReviewPool,
+  dueReviewQuestions,
+  recentSessions,
+  reviewSummary,
+  scopeLabel,
+  sessionLabel,
+  subjectOverview,
+  topicOverview,
+} from '../lib/study.js'
 import { icon } from './icons.js'
 import { escapeHTML, rich, pct, preview, difficultyDots } from './format.js'
 
 const NAV = [
   { id: 'today', label: '今日', icon: 'today' },
+  { id: 'review', label: '复习', icon: 'review' },
+  { id: 'learn', label: '学习', icon: 'learn' },
   { id: 'wrong', label: '错题本', icon: 'wrong' },
   { id: 'stats', label: '数据', icon: 'stats' },
   { id: 'settings', label: '设置', icon: 'settings' },
 ]
 
+const MOBILE_NAV = NAV.filter((item) => item.id !== 'settings')
+
+function activeNav(ctx) {
+  if (ctx.activeTab !== 'practice') return ctx.activeTab
+  const kind = ctx.practice?.kind
+  if (kind === 'due' || kind === 'random') return 'review'
+  if (kind === 'subject' || kind === 'topic') return 'learn'
+  return 'wrong'
+}
+
 export function topbar(ctx) {
-  const active = ctx.activeTab === 'retry' ? 'wrong' : ctx.activeTab
+  const active = activeNav(ctx)
   return `
     <header class="topbar">
       <a class="brand" href="#today" aria-label="研途首页">
@@ -29,6 +51,7 @@ export function topbar(ctx) {
           </a>`,
         ).join('')}
       </nav>
+      <a class="icon-btn mobile-settings" href="#settings" aria-label="设置" title="设置">${icon('sliders', 19)}</a>
       <button class="icon-btn theme-btn" type="button" data-action="toggle-theme" aria-label="切换明暗主题" title="切换明暗主题">
         ${icon(ctx.dark ? 'sun' : 'moon', 19)}
       </button>
@@ -36,10 +59,10 @@ export function topbar(ctx) {
 }
 
 export function bottomNav(ctx) {
-  const active = ctx.activeTab === 'retry' ? 'wrong' : ctx.activeTab
+  const active = activeNav(ctx)
   return `
     <nav class="bottomnav" aria-label="底部导航">
-      ${NAV.map(
+      ${MOBILE_NAV.map(
         (item) => `
         <a class="bottomnav-link ${active === item.id ? 'is-active' : ''}" href="#${item.id}" ${active === item.id ? 'aria-current="page"' : ''}>
           ${icon(item.icon, 21)}
@@ -217,8 +240,8 @@ export function questionCard(ctx, item, { mode = 'daily', active = false } = {})
         ${
           answered && mode === 'retry'
             ? `<div class="card-foot">
-                <button class="btn btn-ghost" type="button" data-action="next-retry">
-                  ${ctx.practice && ctx.practice.index >= ctx.practice.ids.length - 1 ? '完成重练' : '下一题'} ${icon('arrow', 16)}
+                <button class="btn btn-ghost" type="button" data-action="next-session">
+                  ${ctx.practice && ctx.practice.index >= ctx.practice.ids.length - 1 ? '查看结果' : '下一题'} ${icon('arrow', 16)}
                 </button>
               </div>`
             : ''
@@ -410,6 +433,241 @@ export function wrongView(ctx) {
   )
 }
 
+
+function resourceHref(resource) {
+  const query = encodeURIComponent(resource.query || resource.name)
+  if (resource.kind === 'github') return `https://github.com/search?q=${query}&type=repositories`
+  if (resource.kind === 'web') return `https://www.baidu.com/s?wd=${query}`
+  return `https://search.bilibili.com/all?keyword=${query}`
+}
+
+export function reviewView(ctx) {
+  const due = dueReviewQuestions(ctx.state, ctx.questionMap, ctx.dayKey)
+  const pool = buildReviewPool({
+    state: ctx.state,
+    questionsById: ctx.questionMap,
+    today: ctx.dayKey,
+    scopeDays: ctx.settings.review.scopeDays,
+    preferWrong: ctx.settings.review.preferWrong,
+  })
+  const summary = reviewSummary(ctx.state)
+  const logs = recentSessions(ctx.state, 6)
+  const scope = ctx.settings.review.scopeDays
+  const count = Number(ctx.settings.review.count) || 6
+  const preferWrong = Boolean(ctx.settings.review.preferWrong)
+  const dueCap = 12
+  const dueTopics = [...new Set(due.map((question) => question.topic))].slice(0, 5)
+
+  return page(
+    ctx,
+    `<main id="main" class="shell narrow-shell review-shell">
+      <div class="page-heading">
+        <div>
+          <p class="eyebrow">REVIEW</p>
+          <h1>复习</h1>
+          <p class="page-sub">到期错题会自动回来；也可以从前几天做过的题里随机抽一组，看看是真的会了，还是只是记住了答案。</p>
+        </div>
+      </div>
+
+      <div class="review-grid">
+        <section class="panel review-panel review-due">
+          <div class="panel-head">
+            <div><p class="eyebrow">DUE TODAY</p><h2>到期复习</h2></div>
+            <span class="panel-meta">${due.length ? `最多一次 ${Math.min(due.length, dueCap)} 道` : '暂无到期'}</span>
+          </div>
+          <div class="due-count"><strong>${due.length}</strong><span>道题到期</span></div>
+          <p class="form-help">答错的题次日回来，答对后间隔逐步拉长。连续答对 3 次后移出队列。</p>
+          ${
+            dueTopics.length
+              ? `<div class="due-topics">${dueTopics.map((topic) => `<span class="soft-chip">${escapeHTML(topic)}</span>`).join('')}${due.length > dueTopics.length ? `<span class="soft-chip">…</span>` : ''}</div>`
+              : ''
+          }
+          <p class="due-tip">先自己回忆思路，再展开解析。答错的题明天还会回来。</p>
+          <button class="btn btn-primary" type="button" data-action="start-due" ${due.length ? '' : 'disabled'}>
+            ${due.length ? `开始到期复习 ${icon('arrow', 16)}` : '今天没有到期题'}
+          </button>
+        </section>
+
+        <section class="panel review-panel review-random">
+          <div class="panel-head">
+            <div><p class="eyebrow">RANDOM SET</p><h2>随机抽题</h2></div>
+            <span class="panel-meta">可抽 ${pool.questions.length} 题</span>
+          </div>
+          <div class="review-field">
+            <span class="form-label">抽题范围</span>
+            <div class="segmented" role="group" aria-label="抽题范围">
+              ${[3, 7, 14, 'all']
+                .map(
+                  (value) => `<button class="segment ${String(scope) === String(value) ? 'is-active' : ''}" type="button" data-action="review-scope" data-value="${value}">${value === 'all' ? '全部' : `${value} 天`}</button>`,
+                )
+                .join('')}
+            </div>
+          </div>
+          <div class="review-field">
+            <span class="form-label">抽几道</span>
+            <div class="segmented" role="group" aria-label="抽题数量">
+              ${[4, 6, 8, 10]
+                .map(
+                  (value) => `<button class="segment ${count === value ? 'is-active' : ''}" type="button" data-action="review-count" data-value="${value}">${value} 题</button>`,
+                )
+                .join('')}
+            </div>
+          </div>
+          <div class="review-field review-field-inline">
+            <span class="form-help">优先抽还没掌握的错题（权重更高）</span>
+            <button class="toggle-pill ${preferWrong ? 'is-on' : ''}" type="button" data-action="review-prefer" aria-pressed="${preferWrong}">
+              <span class="toggle-dot"></span>优先错题
+            </button>
+          </div>
+          <button class="btn btn-primary" type="button" data-action="start-random" ${pool.questions.length ? '' : 'disabled'}>
+            ${pool.questions.length ? `随机抽 ${Math.min(count, pool.questions.length)} 题 ${icon('arrow', 16)}` : '还没有前几天的作答记录'}
+          </button>
+          <p class="form-help review-hint">${scopeLabel(scope)}做过的题 · ${pool.wrongCount} 道错题待巩固</p>
+        </section>
+      </div>
+
+      <section class="panel review-log-panel">
+        <div class="panel-head">
+          <div><p class="eyebrow">REVIEW LOG</p><h2>复习记录</h2></div>
+          <span class="panel-meta">${summary.sessions} 次 · ${summary.answers ? pct(summary.accuracy) : '—'} 正确率</span>
+        </div>
+        ${
+          logs.length
+            ? `<div class="review-log-list">${logs
+                .map(
+                  (log) => `<div class="review-log-row">
+                    <span class="review-log-kind">${escapeHTML(sessionLabel(log.kind))}</span>
+                    <span class="review-log-title">${escapeHTML(log.title && log.title !== sessionLabel(log.kind) ? log.title : '')}</span>
+                    <span class="review-log-score">${log.correct}/${log.total}</span>
+                    <span class="review-log-date">${formatDate(log.day || String(log.at || '').slice(0, 10), { withWeekday: false })}</span>
+                  </div>`,
+                )
+                .join('')}</div>`
+            : `<div class="quiet-empty">${icon('review', 20)} 还没有复习记录。做完今天的题，或从上面抽一组开始。</div>`
+        }
+      </section>
+
+      <p class="review-note">${icon('clock', 15)} 复习会更新间隔，但不会计入今日进度；每日计划里的到期题仍会照常出现。</p>
+    </main>`,
+  )
+}
+
+export function learnView(ctx) {
+  const subject = SUBJECTS[ctx.learnSubject]
+  if (subject) {
+    const overview = subjectOverview(ctx.state, ctx.questions, subject.key, ctx.dayKey)
+    const topics = topicOverview(ctx.state, ctx.questions, subject.key, ctx.dayKey)
+    return page(
+      ctx,
+      `<main id="main" class="shell narrow-shell learn-shell">
+        <a class="back-link" href="#learn">← 全部科目</a>
+        <div class="learn-detail-head" style="--subject:${subject.color}">
+          <div class="subject-seal">${subject.short}</div>
+          <div class="learn-detail-copy">
+            <p class="eyebrow">SUBJECT · ${subject.en}</p>
+            <h1>${subject.name}</h1>
+            <p>${escapeHTML(subject.description)}</p>
+            <div class="path-chips">${subject.path.map((step, index) => `<span>${escapeHTML(step)}</span>${index < subject.path.length - 1 ? '<i>→</i>' : ''}`).join('')}</div>
+          </div>
+          <button class="btn btn-primary" type="button" data-action="practice-subject" data-subject="${subject.key}">
+            本科目专项 ${icon('arrow', 16)}
+          </button>
+        </div>
+
+        <section class="subject-stat-row">
+          <div><span>已练题目</span><strong>${overview.attempted}<small>/${overview.total}</small></strong></div>
+          <div><span>首答正确率</span><strong>${overview.firstAttempts ? pct(overview.accuracy) : '—'}</strong></div>
+          <div><span>已掌握</span><strong>${overview.mastered}<small>题</small></strong></div>
+          <div><span>到期复习</span><strong>${overview.due}<small>题</small></strong></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div><p class="eyebrow">KNOWLEDGE MAP</p><h2>知识点地图</h2></div>
+            <span class="panel-meta">按内容顺序 · 练习后自动标记状态</span>
+          </div>
+          <div class="topic-list">
+            ${topics
+              .map(
+                (row) => `<div class="topic-row">
+                  <div class="topic-main">
+                    <div class="topic-title">
+                      <strong>${escapeHTML(row.topic)}</strong>
+                      <span class="topic-status is-${row.status.key}">${row.status.label}</span>
+                    </div>
+                    <div class="topic-bar"><span style="width:${Math.round(row.accuracy * 100)}%;--subject:${subject.color}"></span></div>
+                    <div class="topic-meta">${row.questions.length} 题 · ${row.firstAttempts} 次首答 · ${row.firstAttempts ? `正确率 ${pct(row.accuracy)}` : '还没开始'}${row.wrong ? ` · ${row.wrong} 道错题` : ''}</div>
+                  </div>
+                  <button class="btn btn-small" type="button" data-action="practice-topic" data-subject="${subject.key}" data-topic="${escapeHTML(row.topic)}">练这组</button>
+                </div>`,
+              )
+              .join('')}
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div><p class="eyebrow">FREE RESOURCES</p><h2>免费资源入口</h2></div>
+            <span class="panel-meta">外部搜索</span>
+          </div>
+          <div class="resource-list">
+            ${(subject.resources || [])
+              .map(
+                (resource) => `<a class="resource-row" href="${resourceHref(resource)}" target="_blank" rel="noopener noreferrer">
+                  <span class="resource-copy"><strong>${escapeHTML(resource.name)}</strong><small>${escapeHTML(resource.note)}</small></span>
+                  ${icon('arrow', 16)}
+                </a>`,
+              )
+              .join('')}
+          </div>
+          <p class="form-help resource-help">链接是搜索入口，不直接搬运课程或真题；具体合集以 UP 主和站点最新发布为准。</p>
+        </section>
+      </main>`,
+    )
+  }
+
+  return page(
+    ctx,
+    `<main id="main" class="shell narrow-shell learn-shell">
+      <div class="page-heading">
+        <div>
+          <p class="eyebrow">LEARN</p>
+          <h1>学习</h1>
+          <p class="page-sub">按科目看知识点，哪里不会点哪里。每个知识点都能单独练一组，练完自动记录掌握情况。</p>
+        </div>
+      </div>
+
+      <div class="learn-grid">
+        ${SUBJECT_ORDER.map((key) => {
+          const item = SUBJECTS[key]
+          const overview = subjectOverview(ctx.state, ctx.questions, key, ctx.dayKey)
+          const isOff = key === 'politics' && Number(ctx.settings.daily.politics) === 0
+          return `<a class="learn-card" href="#learn/${key}" style="--subject:${item.color}">
+            <div class="learn-card-top">
+              ${subjectPill(item)}
+              <span class="learn-arrow">${icon('arrow', 17)}</span>
+            </div>
+            <h2>${item.name}${isOff ? '<small>未开启</small>' : ''}</h2>
+            <p>${escapeHTML(item.description)}</p>
+            <div class="learn-progress"><span style="width:${Math.round(overview.progress * 100)}%"></span></div>
+            <div class="learn-meta">
+              <span>已练 <b>${overview.attempted}</b>/${overview.total}</span>
+              <span>首答 <b>${overview.firstAttempts ? pct(overview.accuracy) : '—'}</b></span>
+              <span>掌握 <b>${overview.mastered}</b></span>
+            </div>
+            <div class="path-chips">${item.path.map((step) => `<span>${escapeHTML(step)}</span>`).join('')}</div>
+          </a>`
+        }).join('')}
+      </div>
+
+      <div class="learn-foot">
+        <p>${icon('spark', 17)} 知识点里的题来自内置题库和导入题库；做错的题会自动进入错题本与复习队列。</p>
+        <a class="text-link" href="#review">去复习页随机抽题 →</a>
+      </div>
+    </main>`,
+  )
+}
+
 function heatmapMarkup(ctx) {
   const cells = heatmap(ctx.state, 84, ctx.dayKey)
   const total = cells.reduce((sum, cell) => sum + cell.count, 0)
@@ -436,6 +694,7 @@ export function statsView(ctx) {
   const overall = overallStats(ctx.state, ctx.questionMap, ctx.dayKey)
   const rows = subjectBreakdown(ctx.state, ctx.questionMap)
   const weak = weakTopics(ctx.state, ctx.questionMap)
+  const review = reviewSummary(ctx.state)
   const activeRows = rows.filter((row) => row.firstAttempts > 0)
 
   if (!overall.attempts) {
@@ -465,7 +724,7 @@ export function statsView(ctx) {
         <div class="stat-card"><span class="stat-label">连续学习</span><strong>${overall.streak}<small>天</small></strong><span class="stat-foot">最长 ${overall.longest} 天</span></div>
         <div class="stat-card"><span class="stat-label">首答正确率</span><strong>${pct(overall.accuracy)}</strong><span class="stat-foot">只看第一次作答</span></div>
         <div class="stat-card"><span class="stat-label">已练题目</span><strong>${overall.solved}<small>题</small></strong><span class="stat-foot">累计作答 ${overall.attempts} 次</span></div>
-        <div class="stat-card"><span class="stat-label">待复习</span><strong>${overall.wrongOpen}<small>题</small></strong><span class="stat-foot">连续答对 3 次移出</span></div>
+        <div class="stat-card"><span class="stat-label">待复习</span><strong>${overall.wrongOpen}<small>题</small></strong><span class="stat-foot">连续 3 次答对移出 · 已复习 ${review.sessions} 次</span></div>
       </section>
 
       ${heatmapMarkup(ctx)}
@@ -537,6 +796,7 @@ function toggleRow(label, description, name, checked) {
 export function settingsView(ctx) {
   const { settings } = ctx
   const customCount = ctx.state.customQuestions?.length || 0
+  const review = reviewSummary(ctx.state)
   return page(
     ctx,
     `<main id="main" class="shell narrow-shell settings-shell">
@@ -610,6 +870,7 @@ export function settingsView(ctx) {
           <span>内置题库 <b>${ctx.builtinCount}</b> 题</span>
           <span>自定义 <b>${customCount}</b> 题</span>
           <span>已练 <b>${ctx.stats.solved}</b> 题</span>
+          <span>复习 <b>${review.sessions}</b> 次</span>
         </div>
         <p class="form-help data-help">题库格式为 JSON 数组，字段说明见仓库 README。导入的题目只保存在本地，不会上传。内置题与用户题使用相同 id 时会拒绝导入，避免覆盖。</p>
         <details class="danger-zone">
@@ -633,36 +894,79 @@ export function settingsView(ctx) {
   )
 }
 
-export function retryView(ctx) {
+export function sessionView(ctx) {
   const practice = ctx.practice
   if (!practice || !practice.ids.length) {
-    return page(ctx, `<main id="main" class="shell narrow-shell">${emptyState({ title: '没有待重练的题', text: '先去做今天的题，或者从错题本选择一道。', href: '#wrong', action: '回到错题本' })}</main>`)
+    return page(
+      ctx,
+      `<main id="main" class="shell narrow-shell">${emptyState({ iconName: 'review', title: '没有进行中的练习', text: '从复习页抽一组题，或者去错题本选一道。', href: '#review', action: '去复习' })}</main>`,
+    )
   }
-  const index = Math.min(practice.index, practice.ids.length - 1)
+
+  const backHref = practice.returnTo || (['due', 'random'].includes(practice.kind) ? '#review' : ['subject', 'topic'].includes(practice.kind) ? '#learn' : '#wrong')
+  const backLabel = ['due', 'random'].includes(practice.kind) ? '复习' : ['subject', 'topic'].includes(practice.kind) ? '学习' : '错题本'
+  const title = practice.title || sessionLabel(practice.kind)
+  const eyebrow = ['due', 'random'].includes(practice.kind) ? 'REVIEW SESSION' : practice.kind === 'wrong' ? 'RETRY SESSION' : 'PRACTICE SESSION'
+  const total = practice.ids.length
+  const answers = Object.values(practice.answers || {})
+  const finished = Boolean(practice.finished)
+  const correct = answers.filter((answer) => answer.correct).length
+  const wrongQuestions = practice.ids
+    .filter((id) => practice.answers?.[id] && !practice.answers[id].correct)
+    .map((id) => ctx.questionMap.get(id))
+    .filter(Boolean)
+
+  if (finished) {
+    const minutes = practice.startedAt
+      ? Math.max(1, Math.round((Date.now() - new Date(practice.startedAt).getTime()) / 60000))
+      : null
+    return page(
+      ctx,
+      `<main id="main" class="shell narrow-shell retry-shell">
+        <div class="session-finish">
+          <div class="finish-stamp" aria-hidden="true">${correct === total ? '全对' : '完成'}</div>
+          <p class="eyebrow">SESSION COMPLETE</p>
+          <h1>这组${escapeHTML(['due', 'random'].includes(practice.kind) ? '复习' : practice.kind === 'wrong' ? '错题重练' : '专项练习')}完成了。</h1>
+          <p class="session-score"><strong>${correct}<small>/${total}</small></strong> 答对${minutes ? ` · 约 ${minutes} 分钟` : ''}</p>
+          ${
+            wrongQuestions.length
+              ? `<div class="session-wrongs"><span class="mini-label">需要再看一眼</span><div class="due-topics">${[...new Set(wrongQuestions.map((question) => question.topic))].map((topic) => `<span class="soft-chip">${escapeHTML(topic)}</span>`).join('')}</div></div>`
+              : `<p class="session-perfect">${icon('spark', 18)} 这一组全对，继续保持。</p>`
+          }
+          <div class="session-actions">
+            <button class="btn btn-primary" type="button" data-action="session-again">${practice.kind === 'random' ? '再抽一组' : '再练一组'} ${icon('arrow', 16)}</button>
+            ${wrongQuestions.length ? `<button class="btn" type="button" data-action="session-wrongs">只练这 ${wrongQuestions.length} 道</button>` : ''}
+            <a class="btn btn-ghost" href="${backHref}">返回${backLabel}</a>
+          </div>
+        </div>
+      </main>`,
+    )
+  }
+
+  const index = Math.min(practice.index, total - 1)
   const qid = practice.ids[index]
   const question = ctx.questionMap.get(qid)
   if (!question) {
-    return page(ctx, `<main id="main" class="shell narrow-shell">${emptyState({ title: '题目不存在', text: '它可能来自已删除的自定义题库。', href: '#wrong', action: '回到错题本' })}</main>`)
+    return page(
+      ctx,
+      `<main id="main" class="shell narrow-shell">${emptyState({ iconName: 'review', title: '题目不存在', text: '它可能来自已删除的自定义题库。', href: backHref, action: `回到${backLabel}` })}</main>`,
+    )
   }
   const answer = practice.answers?.[qid]
-  const complete = Object.keys(practice.answers || {}).length >= practice.ids.length
+  const allAnswered = answers.length >= total
 
   return page(
     ctx,
     `<main id="main" class="shell narrow-shell retry-shell">
       <div class="retry-head">
-        <a class="back-link" href="#wrong">← 错题本</a>
-        <div class="retry-title"><p class="eyebrow">RETRY SESSION</p><h1>错题重练</h1></div>
-        <span class="retry-counter">${index + 1} / ${practice.ids.length}</span>
+        <a class="back-link" href="${backHref}">← ${backLabel}</a>
+        <div class="retry-title"><p class="eyebrow">${eyebrow}</p><h1>${escapeHTML(title)}</h1></div>
+        <span class="retry-counter">${index + 1} / ${total}</span>
       </div>
-      <div class="retry-progress"><span style="width:${((index + (answer ? 1 : 0)) / practice.ids.length) * 100}%"></span></div>
-      ${complete && answer ? `<div class="retry-done">${icon('check', 18)} 这组错题已经过了一遍。答对的题会延长复习间隔，答错的题明天还会回来。</div>` : ''}
-      ${questionCard(
-        { ...ctx, practice },
-        { id: qid, kind: 'review' },
-        { mode: 'retry', active: !answer },
-      )}
-      <div class="retry-foot"><a class="text-link" href="#wrong">结束重练</a></div>
+      <div class="retry-progress"><span style="width:${((index + (answer ? 1 : 0)) / total) * 100}%"></span></div>
+      ${allAnswered && answer ? `<div class="retry-done">${icon('check', 18)} 这组题已经全部作答。查看结果后，错题会按间隔复习继续出现。</div>` : ''}
+      ${questionCard({ ...ctx, practice }, { id: qid, kind: practice.kind === 'wrong' ? 'review' : 'new' }, { mode: 'retry', active: !answer })}
+      <div class="retry-foot"><a class="text-link" href="${backHref}">结束本次练习</a></div>
     </main>`,
   )
 }
