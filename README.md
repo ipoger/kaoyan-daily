@@ -1,5 +1,7 @@
 # 研途 · 每日四题
 
+[![Deploy to GitHub Pages](https://github.com/ipoger/kaoyan-daily/actions/workflows/deploy.yml/badge.svg)](https://github.com/ipoger/kaoyan-daily/actions/workflows/deploy.yml)
+
 > 每天一道数学题、一句英语长难句、两道 408。先作答，再看解析；答错的题自动进入错题本，到期再考你一次。
 
 一个纯静态、不登录、不收费、不上传数据的考研每日练习工具。部署在 GitHub Pages 上，打开网页就能用；进度保存在浏览器本地，也可以导出成 JSON 备份。

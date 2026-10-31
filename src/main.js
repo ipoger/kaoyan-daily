@@ -457,9 +457,8 @@ function onKeyDown(event) {
     }
     return
   }
-  if (event.target.closest('button, a')) return
   if (activeTab !== 'today' && activeTab !== 'retry') return
-  const card = document.querySelector('.qa-card[data-active="true"]')
+  const card = event.target.closest('.qa-card') || document.querySelector('.qa-card[data-active="true"]')
   if (!card) return
   if (/^[1-4]$/.test(event.key)) {
     const option = card.querySelectorAll('.option')[Number(event.key) - 1]
@@ -468,6 +467,8 @@ function onKeyDown(event) {
       option.click()
     }
   } else if (event.key === 'Enter') {
+    // 焦点通常停在选项按钮上，所以这里主动接管 Enter，
+    // 避免“按了 Enter 只是再次点击选项”的错觉。
     const submit = card.querySelector('[data-action="submit"]')
     const next = card.querySelector('[data-action="next-question"], [data-action="next-retry"]')
     if (submit) {

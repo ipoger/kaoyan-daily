@@ -21,6 +21,11 @@
   ],
   "author": "May",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ipoger/kaoyan-daily.git"
+  },
+  "homepage": "https://ipoger.github.io/kaoyan-daily/",
   "dependencies": {
     "katex": "^0.19.1"
   },
