@@ -1,4 +1,5 @@
 import { SUBJECTS, isChoice, OPTION_LETTERS } from './subjects.js'
+import { SOURCE_TYPES } from './source.js'
 
 const ID_RE = /^[a-z0-9][a-z0-9-]{2,63}$/
 
@@ -26,6 +27,24 @@ export function validateQuestion(question, context = {}) {
   if (!String(question.explanation || '').trim()) fail('缺少 explanation（解析）。')
   if (question.difficulty !== undefined && ![1, 2, 3].includes(question.difficulty)) {
     fail('difficulty 只能是 1、2、3。')
+  }
+  if (question.source !== undefined) {
+    const source = question.source
+    if (typeof source === 'string') {
+      if (!source.trim()) fail('source 不能为空字符串。')
+    } else if (source && typeof source === 'object' && !Array.isArray(source)) {
+      if (!SOURCE_TYPES.includes(source.type)) {
+        fail(`source.type 必须是 ${SOURCE_TYPES.join(' / ')} 之一。`)
+      }
+      if (source.name !== undefined && !String(source.name).trim()) {
+        fail('source.name 不能为空。')
+      }
+      if (source.detail !== undefined && typeof source.detail !== 'string') {
+        fail('source.detail 必须是字符串。')
+      }
+    } else {
+      fail('source 必须是字符串，或 { type, name, detail } 对象。')
+    }
   }
 
   if (!['choice', 'fill'].includes(question.type)) {

@@ -203,6 +203,7 @@ describe('schema and storage', () => {
     expect(state.customQuestions).toEqual([])
     expect(state.version).toBe(2)
     expect(state.settings.review.count).toBe(6)
+    expect(state.settings.preferSourced).toBe(true)
     expect(state.reviewLog).toEqual([])
   })
 })

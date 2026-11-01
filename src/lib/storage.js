@@ -6,6 +6,7 @@ export const DEFAULT_SETTINGS = {
   theme: 'auto',
   daily: { math: 1, english: 1, cs408: 2, politics: 0 },
   reviewLimit: 4,
+  preferSourced: true,
   review: { scopeDays: 7, count: 6, preferWrong: true },
 }
 

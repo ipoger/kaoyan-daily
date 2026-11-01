@@ -1,5 +1,6 @@
 import { addDays, dateKey } from './date.js'
 import { isMastered } from './review.js'
+import { isSourced } from './source.js'
 
 export const SESSION_LABELS = {
   due: '到期复习',
@@ -59,11 +60,16 @@ export function buildReviewPool({ state, questionsById, today, scopeDays, prefer
  * 加权不放回抽样。优先错题时，错题的权重为 3，其余为 1。
  * rng 可注入，方便测试。
  */
-export function sampleReview(questions, count, { progress = {}, preferWrong = false, rng = Math.random } = {}) {
-  const pool = questions.map((question) => ({
-    question,
-    weight: preferWrong && progress[question.id]?.everWrong && !isMastered(progress[question.id]) ? 3 : 1,
-  }))
+export function sampleReview(
+  questions,
+  count,
+  { progress = {}, preferWrong = false, preferSourced = false, rng = Math.random } = {},
+) {
+  const pool = questions.map((question) => {
+    const wrongWeight = preferWrong && progress[question.id]?.everWrong && !isMastered(progress[question.id]) ? 3 : 1
+    const sourceWeight = preferSourced && isSourced(question.source) ? 2 : 1
+    return { question, weight: wrongWeight * sourceWeight }
+  })
   const picked = []
   const target = Math.max(0, Math.min(Number(count) || 0, pool.length))
 

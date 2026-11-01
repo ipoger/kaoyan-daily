@@ -1,11 +1,13 @@
 import { SUBJECT_ORDER } from './subjects.js'
 import { isDue } from './review.js'
 import { shuffleSeeded } from './random.js'
+import { isSourced } from './source.js'
 
 export function dailySignature(settings) {
   return JSON.stringify({
     daily: settings?.daily || {},
     reviewLimit: settings?.reviewLimit ?? 4,
+    preferSourced: settings?.preferSourced !== false,
   })
 }
 
@@ -54,7 +56,15 @@ export function buildDailyPlan({ questions, state, dayKey, settings = state.sett
       .filter((question) => progress[question.id])
       .sort((a, b) => String(progress[a.id]?.lastAt || '').localeCompare(String(progress[b.id]?.lastAt || '')))
 
-    const picks = shuffleSeeded(fresh, `${dayKey}:${subject}:fresh`).slice(0, count)
+    const shuffledFresh = shuffleSeeded(fresh, `${dayKey}:${subject}:fresh`)
+    const orderedFresh =
+      settings.preferSourced !== false
+        ? [
+            ...shuffledFresh.filter((question) => isSourced(question.source)),
+            ...shuffledFresh.filter((question) => !isSourced(question.source)),
+          ]
+        : shuffledFresh
+    const picks = orderedFresh.slice(0, count)
     if (picks.length < count) {
       // 旧题补位时优先最久没碰过的，同时避免把今天刚复习的题又塞进来。
       const fill = shuffleSeeded(seen, `${dayKey}:${subject}:fill`)

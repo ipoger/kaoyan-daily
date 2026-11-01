@@ -13,8 +13,10 @@ import {
   subjectOverview,
   topicOverview,
 } from '../lib/study.js'
+import { materialsForSubject, materialNeighbors } from '../../content/materials/index.js'
+import { sourceBreakdown, sourceInfo, sourceLabel } from '../lib/source.js'
 import { icon } from './icons.js'
-import { escapeHTML, rich, pct, preview, difficultyDots } from './format.js'
+import { escapeHTML, rich, pct, preview, difficultyDots, renderMarkdown } from './format.js'
 
 const NAV = [
   { id: 'today', label: '今日', icon: 'today' },
@@ -106,6 +108,15 @@ function subjectPill(subject) {
   </span>`
 }
 
+function sourceBadge(question) {
+  const info = sourceInfo(question.source)
+  return `<span class="source-badge ${sourceClass(info.type)}" title="题源：${escapeHTML(sourceLabel(question.source))}">${escapeHTML(info.type)}</span>`
+}
+
+function sourceClass(type) {
+  return type === '真题' ? 'is-exam' : type === '模拟题' ? 'is-mock' : type === '教材' ? 'is-book' : 'is-original'
+}
+
 function optionMarkup(question, answer, mode) {
   return `<div class="options" role="radiogroup" aria-label="选项">
     ${question.options
@@ -181,6 +192,7 @@ function feedback(question, answer, progress) {
       <span class="mini-label">解析</span>
       <div class="rich-text">${rich(question.explanation)}</div>
       ${question.subject === 'english' ? englishReveal(question) : ''}
+      <div class="source-line">题源：${escapeHTML(sourceLabel(question.source))}</div>
     </div>`
 }
 
@@ -199,6 +211,7 @@ export function questionCard(ctx, item, { mode = 'daily', active = false } = {})
       <div class="card-top">
         ${subjectPill(subject)}
         <span class="topic">${escapeHTML(question.topic)}</span>
+        ${sourceBadge(question)}
         ${isReview ? '<span class="review-pill">到期复习</span>' : ''}
         <span class="difficulty" title="难度 ${question.difficulty || 2}/3">${difficultyDots(question.difficulty || 2)}</span>
       </div>
@@ -552,8 +565,64 @@ export function reviewView(ctx) {
   )
 }
 
+
+function materialView(ctx, subject, material) {
+  const { previous, next } = materialNeighbors(subject.key, material.id)
+  const topics = material.topics || []
+  const videoHref = resourceHref(material.video || { name: material.title, kind: 'bilibili', query: `${subject.name} ${material.title}` })
+  const body = String(material.body || '').replace(/^#\s+.*\n+/, '')
+
+  return page(
+    ctx,
+    `<main id="main" class="shell narrow-shell material-shell">
+      <a class="back-link" href="#learn/${subject.key}">← ${subject.name}</a>
+      <div class="material-head" style="--subject:${subject.color}">
+        <p class="eyebrow">LECTURE NOTES · ${subject.en}</p>
+        <h1>${escapeHTML(material.title)}</h1>
+        <p class="material-summary">${escapeHTML(material.summary)}</p>
+        <div class="material-meta">
+          ${(material.books || []).map((book) => `<span class="book-chip">${escapeHTML(book)}</span>`).join('')}
+        </div>
+        <div class="material-actions">
+          <a class="btn btn-primary" href="${videoHref}" target="_blank" rel="noopener noreferrer">看视频 ${icon('arrow', 16)}</a>
+          ${
+            topics[0]
+              ? `<button class="btn" type="button" data-action="practice-topic" data-subject="${subject.key}" data-topic="${escapeHTML(topics[0])}">练相关题</button>`
+              : ''
+          }
+        </div>
+      </div>
+
+      <div class="material-layout">
+        <article class="material-body markdown-body">${renderMarkdown(body)}</article>
+        <aside class="material-aside">
+          <div class="aside-block">
+            <p class="mini-label">本章练习</p>
+            <div class="aside-topics">
+              ${topics.map((topic) => `<button class="aside-topic" type="button" data-action="practice-topic" data-subject="${subject.key}" data-topic="${escapeHTML(topic)}">${escapeHTML(topic)} ${icon('arrow', 13)}</button>`).join('')}
+            </div>
+          </div>
+          <div class="aside-block">
+            <p class="mini-label">配套书目</p>
+            <ul class="book-list">${(material.books || []).map((book) => `<li>${escapeHTML(book)}</li>`).join('')}</ul>
+          </div>
+          <p class="aside-note">讲义为原创整理，用于建立框架；教材和真题请使用你合法获得的版本。</p>
+        </aside>
+      </div>
+
+      <nav class="material-pager" aria-label="讲义翻页">
+        ${previous ? `<a href="#learn/${subject.key}/${previous.id}"><span>上一章</span><strong>${escapeHTML(previous.title)}</strong></a>` : '<span></span>'}
+        ${next ? `<a class="is-next" href="#learn/${subject.key}/${next.id}"><span>下一章</span><strong>${escapeHTML(next.title)}</strong></a>` : '<span></span>'}
+      </nav>
+    </main>`,
+  )
+}
+
 export function learnView(ctx) {
   const subject = SUBJECTS[ctx.learnSubject]
+  if (subject && ctx.learnMaterial) {
+    return materialView(ctx, subject, ctx.learnMaterial)
+  }
   if (subject) {
     const overview = subjectOverview(ctx.state, ctx.questions, subject.key, ctx.dayKey)
     const topics = topicOverview(ctx.state, ctx.questions, subject.key, ctx.dayKey)
@@ -579,6 +648,25 @@ export function learnView(ctx) {
           <div><span>首答正确率</span><strong>${overview.firstAttempts ? pct(overview.accuracy) : '—'}</strong></div>
           <div><span>已掌握</span><strong>${overview.mastered}<small>题</small></strong></div>
           <div><span>到期复习</span><strong>${overview.due}<small>题</small></strong></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div><p class="eyebrow">LECTURE NOTES</p><h2>讲义</h2></div>
+            <span class="panel-meta">先看讲义，再做题</span>
+          </div>
+          <div class="material-grid">
+            ${materialsForSubject(subject.key)
+              .map(
+                (material, index) => `<a class="material-card" href="#learn/${subject.key}/${material.id}">
+                  <span class="material-index">CH ${String(index + 1).padStart(2, '0')}</span>
+                  <strong>${escapeHTML(material.title)}</strong>
+                  <p>${escapeHTML(material.summary)}</p>
+                  <span class="material-foot">讲义 · 视频 · 相关习题 ${icon('arrow', 14)}</span>
+                </a>`,
+              )
+              .join('')}
+          </div>
         </section>
 
         <section class="panel">
@@ -654,6 +742,7 @@ export function learnView(ctx) {
               <span>已练 <b>${overview.attempted}</b>/${overview.total}</span>
               <span>首答 <b>${overview.firstAttempts ? pct(overview.accuracy) : '—'}</b></span>
               <span>掌握 <b>${overview.mastered}</b></span>
+              <span>讲义 <b>${materialsForSubject(key).length}</b> 章</span>
             </div>
             <div class="path-chips">${item.path.map((step) => `<span>${escapeHTML(step)}</span>`).join('')}</div>
           </a>`
@@ -797,6 +886,7 @@ export function settingsView(ctx) {
   const { settings } = ctx
   const customCount = ctx.state.customQuestions?.length || 0
   const review = reviewSummary(ctx.state)
+  const sources = sourceBreakdown(ctx.questions)
   return page(
     ctx,
     `<main id="main" class="shell narrow-shell settings-shell">
@@ -841,6 +931,20 @@ export function settingsView(ctx) {
           </select>
         </div>
         ${toggleRow('政治模块', '默认关闭；进入正式备考阶段再开启。', 'politicsEnabled', Number(settings.daily.politics) > 0)}
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><div><p class="eyebrow">QUESTION SOURCE</p><h2>题源</h2></div><span class="panel-meta">导入后生效</span></div>
+        ${toggleRow(
+          '优先练习已标注题源的题',
+          '导入真题 / 模拟题 / 教材题后，每日新题优先安排这些题，随机复习也会加权。',
+          'preferSourced',
+          settings.preferSourced !== false,
+        )}
+        <div class="source-summary">
+          ${sources.map((row) => `<span class="source-chip ${sourceClass(row.type)}"><b>${row.type}</b>${row.count}</span>`).join('')}
+        </div>
+        <p class="form-help data-help">内置题全部标注为「原创」，不会伪装成真题。教材、真题和模拟题请整理成 JSON 后导入，并填写 <code>source</code> 字段；系统只保存题源描述，不保存原书扫描件。</p>
       </section>
 
       <section class="panel">

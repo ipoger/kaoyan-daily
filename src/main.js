@@ -2,6 +2,7 @@ import './styles.css'
 import 'katex/dist/katex.min.css'
 
 import { builtinQuestions, CONTENT_VERSION } from '../content/index.js'
+import { findMaterial } from '../content/materials/index.js'
 import { buildQuestionPool, indexQuestions } from './lib/content.js'
 import { todayKey } from './lib/date.js'
 import { isCorrect } from './lib/grade.js'
@@ -18,7 +19,7 @@ import { learnView, reviewView, sessionView, settingsView, statsView, todayView,
 const app = document.getElementById('app')
 const toastEl = document.getElementById('toast')
 const TABS = ['today', 'review', 'learn', 'wrong', 'stats', 'settings', 'practice']
-const VERSION = '1.1.0'
+const VERSION = '1.2.0'
 
 let state = loadState()
 let questions = buildQuestionPool(state.customQuestions)
@@ -26,6 +27,7 @@ let questionMap = indexQuestions(questions)
 let route = parseRoute()
 let activeTab = route.tab
 let learnSubject = route.subject
+let learnMaterialId = route.materialId
 let wrongFilter = 'all'
 let practice = null
 let toastTimer = null
@@ -35,9 +37,11 @@ function parseRoute() {
   const [tab, ...rest] = raw.split('/')
   if (tab === 'learn') {
     const subject = rest[0]
-    return { tab: 'learn', subject: SUBJECTS[subject] ? subject : null }
+    const materialId = rest[1]
+    const material = SUBJECTS[subject] && materialId ? findMaterial(subject, materialId) : null
+    return { tab: 'learn', subject: SUBJECTS[subject] ? subject : null, materialId: material?.id || null }
   }
-  return { tab: TABS.includes(tab) ? tab : 'today', subject: null }
+  return { tab: TABS.includes(tab) ? tab : 'today', subject: null, materialId: null }
 }
 
 function effectiveDark() {
@@ -117,6 +121,7 @@ function context() {
     stats: overallStats(state, questionMap, todayKey()),
     activeTab,
     learnSubject,
+    learnMaterial: learnSubject && learnMaterialId ? findMaterial(learnSubject, learnMaterialId) : null,
     dark: effectiveDark(),
     wrongFilter,
     practice,
@@ -151,7 +156,11 @@ function render() {
   const titles = {
     today: '今日 · 研途',
     review: '复习 · 研途',
-    learn: learnSubject ? `${SUBJECTS[learnSubject].name}学习 · 研途` : '学习 · 研途',
+    learn: learnSubject
+      ? learnMaterialId
+        ? `${findMaterial(learnSubject, learnMaterialId)?.title || '讲义'} · 研途`
+        : `${SUBJECTS[learnSubject].name}学习 · 研途`
+      : '学习 · 研途',
     wrong: '错题本 · 研途',
     stats: '学习数据 · 研途',
     settings: '设置 · 研途',
@@ -168,10 +177,14 @@ function renderPreservingCard(qid) {
   if (after !== undefined) window.scrollBy(0, after - before)
 }
 
-function go(tab, { replace = false, subject = null } = {}) {
+function go(tab, { replace = false, subject = null, materialId = null } = {}) {
   activeTab = tab
   learnSubject = tab === 'learn' ? subject : null
-  const hash = tab === 'learn' && subject ? `#learn/${subject}` : `#${tab}`
+  learnMaterialId = tab === 'learn' ? materialId : null
+  const hash =
+    tab === 'learn' && subject
+      ? `#learn/${subject}${materialId ? `/${materialId}` : ''}`
+      : `#${tab}`
   if (window.location.hash !== hash) {
     if (replace) window.history.replaceState(null, '', hash)
     else window.history.pushState(null, '', hash)
@@ -299,6 +312,7 @@ function startRandomReview() {
   const picked = sampleReview(pool.questions, Number(count) || 6, {
     progress: state.progress,
     preferWrong,
+    preferSourced: state.settings.preferSourced !== false,
   })
   if (!picked.length) {
     toast('这个范围里还没有做过的题。', 'error')
@@ -328,7 +342,11 @@ function startDueReview() {
 function startSubjectPractice(subject) {
   if (!SUBJECTS[subject]) return
   const pool = questions.filter((question) => question.subject === subject)
-  const picked = sampleReview(pool, 8, { progress: state.progress, preferWrong: true })
+  const picked = sampleReview(pool, 8, {
+    progress: state.progress,
+    preferWrong: true,
+    preferSourced: state.settings.preferSourced !== false,
+  })
   if (!picked.length) {
     toast('这个科目还没有题目。', 'error')
     return
@@ -344,7 +362,11 @@ function startSubjectPractice(subject) {
 function startTopicPractice(subject, topic) {
   if (!SUBJECTS[subject] || !topic) return
   const pool = questions.filter((question) => question.subject === subject && question.topic === topic)
-  const picked = sampleReview(pool, 8, { progress: state.progress, preferWrong: true })
+  const picked = sampleReview(pool, 8, {
+    progress: state.progress,
+    preferWrong: true,
+    preferSourced: state.settings.preferSourced !== false,
+  })
   if (!picked.length) {
     toast('这个知识点还没有题目。', 'error')
     return
@@ -494,6 +516,7 @@ async function importQuestions(input) {
   state.customQuestions = [...(state.customQuestions || []), ...list]
   questions = buildQuestionPool(state.customQuestions)
   questionMap = indexQuestions(questions)
+  rebuildTodayIfUntouched()
   save()
   go('settings')
   toast(`已导入 ${list.length} 道题。`, 'success')
@@ -522,6 +545,8 @@ function handleSettingChange(target) {
     state.settings.daily[target.dataset.daily] = Number(target.value)
   } else if (target.dataset.toggle === 'politicsEnabled') {
     state.settings.daily.politics = target.checked ? 1 : 0
+  } else if (target.dataset.toggle === 'preferSourced') {
+    state.settings.preferSourced = target.checked
   } else if (target.dataset.theme) {
     state.settings.theme = target.dataset.theme
   } else {
@@ -672,6 +697,7 @@ window.addEventListener('hashchange', () => {
   const next = parseRoute()
   activeTab = next.tab
   learnSubject = next.subject
+  learnMaterialId = next.materialId
   render()
   window.scrollTo(0, 0)
 })

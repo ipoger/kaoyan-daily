@@ -1,4 +1,6 @@
 import renderMathInElement from 'katex/contrib/auto-render'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 
 export function escapeHTML(value) {
   return String(value ?? '')
@@ -58,4 +60,21 @@ export function difficultyDots(level = 2) {
 
 export function initials(name) {
   return String(name || '?').slice(0, 1)
+}
+
+
+/** 讲义 Markdown → 安全 HTML。公式仍由 renderMath() 统一渲染。 */
+export function renderMarkdown(markdown) {
+  // 先把公式抽成占位符，避免 Markdown 把 x_1 之类解析成强调。
+  const formulas = []
+  const protectedText = String(markdown || '').replace(/\$\$[\s\S]*?\$\$|\$[^$\n]*\$/g, (formula) => {
+    formulas.push(formula)
+    return `YANTUMATHPLACEHOLDER${formulas.length - 1}TOKEN`
+  })
+  let html = marked.parse(protectedText, { gfm: true, breaks: false })
+  html = html.replace(/YANTUMATHPLACEHOLDER(\d+)TOKEN/g, (_, index) => formulas[Number(index)] || '')
+  return DOMPurify.sanitize(html, {
+    USE_PROFILES: { html: true },
+    ADD_ATTR: ['target', 'rel'],
+  })
 }

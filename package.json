@@ -1,6 +1,6 @@
 {
   "name": "kaoyan-daily",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "description": "研途 · 考研每日练习：数学一题、英语一句、408 两题。先作答，再看解析。",
@@ -27,7 +27,9 @@
   },
   "homepage": "https://ipoger.github.io/kaoyan-daily/",
   "dependencies": {
-    "katex": "^0.19.1"
+    "dompurify": "^3.4.17",
+    "katex": "^0.19.1",
+    "marked": "^18.1.2"
   },
   "devDependencies": {
     "vite": "^8.3.5",
